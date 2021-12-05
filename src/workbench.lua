@@ -34,7 +34,7 @@ workbench.defs = {
 	{"stair_inner",	1,  nil			  }
 }
 
-local repairable_tools = {"pick", "axe", "shovel", "sword", "hoe", "armor", "shield"}
+local repairable_tools = {"pick", "axe", "shovel", "sword", "hoe"}
 
 local custom_repairable = {}
 function xdecor:register_repairable(item)
@@ -42,8 +42,30 @@ function xdecor:register_repairable(item)
 end
 
 -- Tools allowed to be repaired
+--[[
 function workbench:repairable(stack)
 	if custom_repairable[stack] then return true end
+
+	for _, t in ipairs(repairable_tools) do
+		if stack:find(t) then
+			return true
+		end
+	end
+end
+]]
+
+function workbench:repairable(stack)
+	if custom_repairable[stack] then return true end
+
+	for _, t in ipairs({
+        "armor_head",
+        "armor_torso",
+        "armor_legs",
+        "armor_feet",
+        "armor_shield",
+        }) do
+		if minetest.get_item_group(stack, t) then return true end
+	end
 
 	for _, t in ipairs(repairable_tools) do
 		if stack:find(t) then
@@ -178,6 +200,7 @@ function workbench.timer(pos)
 end
 
 function workbench.allow_put(pos, listname, index, stack, player)
+	if minetest.is_protected(pos, player:get_player_name()) then return 0 end
 	local stackname = stack:get_name()
 	if (listname == "tool" and stack:get_wear() > 0 and
 		workbench:repairable(stackname)) or
@@ -197,11 +220,12 @@ function workbench.on_put(pos, listname, index, stack, player)
 		workbench:get_output(inv, input, stack:get_name())
 	elseif listname == "tool" or listname == "hammer" then
 		local timer = minetest.get_node_timer(pos)
-		timer:start(3.0)
+		timer:start(1.0)
 	end
 end
 
 function workbench.allow_move(pos, from_list, from_index, to_list, to_index, count, player)
+	if minetest.is_protected(pos, player:get_player_name()) then return 0 end
 	return (to_list == "storage" and from_list ~= "forms") and count or 0
 end
 
@@ -216,6 +240,7 @@ function workbench.on_move(pos, from_list, from_index, to_list, to_index, count,
 end
 
 function workbench.allow_take(pos, listname, index, stack, player)
+	if minetest.is_protected(pos, player:get_player_name()) then return 0 end
 	return stack:get_count()
 end
 
