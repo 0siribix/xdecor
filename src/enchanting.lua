@@ -134,6 +134,7 @@ function enchanting.fields(pos, _, fields, sender)
 		mese:take_item(mese_cost)
 		inv:set_stack("mese", 1, mese)
 		inv:set_stack("tool", 1, tool)
+		enchanting.formspec(pos)
 	end
 end
 
