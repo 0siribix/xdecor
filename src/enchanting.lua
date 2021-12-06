@@ -431,6 +431,19 @@ if minetest.get_modpath("tools_obsidian") then
 	})
 end
 
+if minetest.get_modpath("obsidianmese") then
+	enchanting:register_tools("obsidianmese", {
+		materials = "obsidianmese",
+		material_desc = {obsidianmese = S("Obsidian Mese")},
+		tools = {
+			axe    = {enchants = "durable, fast", desc = S("Axe"), name = "obsidianmese:axe"},
+			pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe"), name = "obsidianmese:pick"},
+			shovel = {enchants = "durable, fast", desc = S("Shovel"), name = "obsidianmese:shovel"},
+			sword  = {enchants = "sharp", desc = S("Sword"), name = "obsidianmese:sword"},
+		}
+	})
+end
+
 -- Recipes
 
 minetest.register_craft({
