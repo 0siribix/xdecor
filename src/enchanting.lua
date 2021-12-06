@@ -3,6 +3,7 @@ local S = minetest.get_translator("xdecor")
 local FS = function(...) return minetest.formspec_escape(S(...)) end
 local ceil, abs, random = math.ceil, math.abs, math.random
 local reg_tools = minetest.registered_tools
+local allowed_tools = {}
 
 -- Cost in Mese crystal(s) for enchanting.
 local mese_cost = 1
@@ -23,7 +24,7 @@ local function to_percent(orig_value, final_value)
 end
 
 function enchanting:get_tooltip(enchant, orig_caps, fleshy)
-	local bonus = {durable = 0, efficiency = 0, damages = 0}
+	local bonus = {durable = 0, efficiency = 0, damages = 0, silktouch = 0}
 
 	if orig_caps then
 		bonus.durable = to_percent(orig_caps.uses, orig_caps.uses * enchanting.uses)
@@ -44,12 +45,14 @@ function enchanting:get_tooltip(enchant, orig_caps, fleshy)
 		durable = {"#00baff", " (+" .. bonus.durable .. "%)"},
 		fast    = {"#74ff49", " (+" .. bonus.efficiency .. "%)"},
 		sharp   = {"#ffff00", " (+" .. bonus.damages .. "%)"},
+		silktouch   = {"#ffff00", " "}
 	}
 
 	local enchant_loc = {
 		fast = S("Efficiency"),
 		durable = S("Durability"),
 		sharp = S("Sharpness"),
+		silktouch = S("Silk Touch")
 	}
 
 	return minetest.colorize and minetest.colorize(specs[enchant][1],
@@ -57,13 +60,16 @@ function enchanting:get_tooltip(enchant, orig_caps, fleshy)
 			"\n" .. enchant_loc[enchant] .. specs[enchant][2]
 end
 
-local enchant_buttons = {
-	"image_button[3.9,0.85;4,0.92;bg_btn.png;fast;"..FS("Efficiency").."]" ..
-	"image_button[3.9,1.77;4,1.12;bg_btn.png;durable;"..FS("Durability").."]",
-	"image_button[3.9,2.9;4,0.92;bg_btn.png;sharp;"..FS("Sharpness").."]",
+local enchantments = {
+	fast = "Efficiency",
+	durable = "Durability",
+	silktouch = "Silk Touch",
+	sharp = "Sharpness"
 }
 
-function enchanting.formspec(pos, num)
+local enchant_buttons = {"3.9,0.65;4,0.92", "3.9,1.6;4,1.12", "3.9,2.75;4,0.92"}
+
+function enchanting.formspec(pos, enchants)
 	local meta = minetest.get_meta(pos)
 	local formspec = [[
 			size[9,8.6;]
@@ -83,25 +89,27 @@ function enchanting.formspec(pos, num)
 			.."tooltip[sharp;"..FS("Your weapon inflicts more damages").."]"
 			.."tooltip[durable;"..FS("Your tool last longer").."]"
 			.."tooltip[fast;"..FS("Your tool digs faster").."]"
+			.."tooltip[silktouch;"..FS("Your tool has Silk Touch").."]"
 			..default.gui_slots .. default.get_hotbar_bg(0.55, 4.5)
 
-	formspec = formspec .. (enchant_buttons[num] or "")
+--	formspec = formspec .. (enchant_buttons[num] or "")
+	if enchants then
+		local cur_button = 1
+		for enchant in enchants:gmatch("[%w_]+") do
+			if enchant_buttons[cur_button] then
+				formspec = formspec .. "image_button[" ..
+					enchant_buttons[cur_button] .. ";bg_btn.png;" ..
+					enchant ..";" .. FS(enchantments[enchant]) .."]"
+				cur_button = cur_button + 1
+			end
+		end
+	end
 	meta:set_string("formspec", formspec)
 end
 
 function enchanting.on_put(pos, listname, _, stack)
 	if listname == "tool" then
-		local stackname = stack:get_name()
-		local tool_groups = {
-			"axe, pick, shovel",
-			"sword",
-		}
-
-		for idx, tools in ipairs(tool_groups) do
-			if tools:find(stackname:match(":(%w+)")) then
-				enchanting.formspec(pos, idx)
-			end
-		end
+		enchanting.formspec(pos, allowed_tools[stack:get_name()].enchants)
 	end
 end
 
@@ -112,7 +120,7 @@ function enchanting.fields(pos, _, fields, sender)
 	local tool = inv:get_stack("tool", 1)
 	local mese = inv:get_stack("mese", 1)
 	local orig_wear = tool:get_wear()
-	local mod, name = tool:get_name():match("(.*):(.*)")
+	local mod, name = allowed_tools[tool:get_name()].template:match("(.*):(.*)")
 	local enchanted_tool = (mod or "") .. ":enchanted_" .. (name or "") .. "_" .. next(fields)
 
 	if mese:get_count() >= mese_cost and reg_tools[enchanted_tool] then
@@ -134,23 +142,13 @@ function enchanting.dig(pos)
 	return inv:is_empty("tool") and inv:is_empty("mese")
 end
 
-local function allowed(tool)
-	if not tool then return end
-
-	for item in pairs(reg_tools) do
-		if item:find("enchanted_" .. tool) then
-			return true
-		end
-	end
-end
-
 function enchanting.put(pos, listname, _, stack, player)
 	if minetest.is_protected(pos, player:get_player_name()) then return 0 end
 	local stackname = stack:get_name()
 	if listname == "mese" and (stackname == "default:mese_crystal" or
 			stackname == "imese:industrial_mese_crystal") then
 		return stack:get_count()
-	elseif listname == "tool" and allowed(stackname:match("[^:]+$")) then
+	elseif listname == "tool" and allowed_tools[stack:get_name()] then
 		return 1
 	end
 
@@ -268,50 +266,62 @@ minetest.register_entity("xdecor:book_open", {
 	end
 })
 
+--[[ Due to the way this is hacked together, any mod with multiple materials and using
+	non-standard naming convention will need to call register tools separately for each material
+	and use the 'name = ""' code for each item
+]]--
+
 function enchanting:register_tools(mod, def)
-	for tool in pairs(def.tools) do
-	for material in def.materials:gmatch("[%w_]+") do
-	for enchant in def.tools[tool].enchants:gmatch("[%w_]+") do
-		local original_tool = reg_tools[mod .. ":" .. tool .. "_" .. material]
-		if not original_tool then break end
-		local original_toolcaps = original_tool.tool_capabilities
+	for tool, dt in pairs(def.tools) do
+		for material in def.materials:gmatch("[%w_]+") do
+			local tname = dt.name or mod .. ":" .. tool .. "_" .. material
+			allowed_tools[tname] = {
+				template = mod .. ":" .. tool .. "_" .. material,
+				enchants = dt.enchants
+			}
+			for enchant in dt.enchants:gmatch("[%w_]+") do
+				local original_tool = reg_tools[(tname)]
+				if not original_tool then break end
+				local original_toolcaps = original_tool.tool_capabilities
 
-		if original_toolcaps then
-			local original_damage_groups = original_toolcaps.damage_groups
-			local original_groupcaps = original_toolcaps.groupcaps
-			local groupcaps = table.copy(original_groupcaps)
-			local fleshy = original_damage_groups.fleshy
-			local full_punch_interval = original_toolcaps.full_punch_interval
-			local max_drop_level = original_toolcaps.max_drop_level
-			local group = next(original_groupcaps)
+				if original_toolcaps then
+					local original_damage_groups = original_toolcaps.damage_groups
+					local original_groupcaps = original_toolcaps.groupcaps
+					local groupcaps = table.copy(original_groupcaps)
+					local fleshy = original_damage_groups.fleshy
+					local full_punch_interval = original_toolcaps.full_punch_interval
+					local max_drop_level = original_toolcaps.max_drop_level
+					local group = next(original_groupcaps)
+					local silktouch = 0
 
-			if enchant == "durable" then
-				groupcaps[group].uses = ceil(original_groupcaps[group].uses *
-							     enchanting.uses)
-			elseif enchant == "fast" then
-				for i, time in pairs(original_groupcaps[group].times) do
-					groupcaps[group].times[i] = time - enchanting.times
+					if enchant == "durable" then
+						groupcaps[group].uses = ceil(original_groupcaps[group].uses *
+										enchanting.uses)
+					elseif enchant == "fast" then
+						for i, time in pairs(original_groupcaps[group].times) do
+							groupcaps[group].times[i] = time - enchanting.times
+						end
+					elseif enchant == "sharp" then
+						fleshy = fleshy + enchanting.damages
+					elseif enchant == "silktouch" then
+						silktouch = 1
+					end
+					minetest.register_tool(":" .. mod .. ":enchanted_" .. tool .. "_" .. material .. "_" .. enchant, {
+						description = S("Enchanted @1 @2 @3",
+							def.material_desc[material] or cap(material), dt.desc or cap(tool),
+							self:get_tooltip(enchant, original_groupcaps[group], fleshy)),
+						inventory_image = original_tool.inventory_image .. "^[colorize:violet:50",
+						wield_image = original_tool.wield_image,
+						groups = {not_in_creative_inventory = 1, silktouch = silktouch},
+						tool_capabilities = {
+							groupcaps = groupcaps, damage_groups = {fleshy = fleshy},
+							full_punch_interval = full_punch_interval,
+							max_drop_level = max_drop_level
+						},
+					})
 				end
-			elseif enchant == "sharp" then
-				fleshy = fleshy + enchanting.damages
 			end
-
-			minetest.register_tool(":" .. mod .. ":enchanted_" .. tool .. "_" .. material .. "_" .. enchant, {
-				description = S("Enchanted @1 @2 @3",
-					def.material_desc[material] or cap(material), def.tools[tool].desc or cap(tool),
-					self:get_tooltip(enchant, original_groupcaps[group], fleshy)),
-				inventory_image = original_tool.inventory_image .. "^[colorize:violet:50",
-				wield_image = original_tool.wield_image,
-				groups = {not_in_creative_inventory = 1},
-				tool_capabilities = {
-					groupcaps = groupcaps, damage_groups = {fleshy = fleshy},
-					full_punch_interval = full_punch_interval,
-					max_drop_level = max_drop_level
-				}
-			})
 		end
-	end
-	end
 	end
 end
 
@@ -319,12 +329,107 @@ enchanting:register_tools("default", {
 	materials = "steel, bronze, mese, diamond",
 	material_desc = {steel = S("Steel"), bronze = S("Bronze"), mese = S("Mese"), diamond = S("Diamond")},
 	tools = {
-		axe    = {enchants = "durable, fast", desc = S("Axe")},
-		pick   = {enchants = "durable, fast", desc = S("Pickaxe")},
-		shovel = {enchants = "durable, fast", desc = S("Shovel")},
+		axe    = {enchants = "durable, fast, silktouch", desc = S("Axe")},
+		pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe")},
+		shovel = {enchants = "durable, fast, silktouch", desc = S("Shovel")},
 		sword  = {enchants = "sharp", desc = S("Sword")}
-	},
+	}
 })
+
+if minetest.get_modpath("ethereal") then
+	enchanting:register_tools("ethereal", {
+		materials = "crystal",
+		material_desc = {crystal = S("Crystal")},
+		tools = {
+			axe    = {enchants = "durable, fast, silktouch", desc = S("Axe")},
+			pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe")},
+			shovel = {enchants = "durable, fast", desc = S("Shovel")},
+			sword  = {enchants = "sharp", desc = S("Sword")}
+		}
+	})
+end
+
+if minetest.get_modpath("moreores") then
+	enchanting:register_tools("moreores", {
+		materials = "tin, silver, mithril",
+		material_desc = {tin = S("Tin"), silver = S("Silver"), mithril = S("Mithril")},
+		tools = {
+			axe    = {enchants = "durable, fast, silktouch", desc = S("Axe")},
+			pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe")},
+			shovel = {enchants = "durable, fast, silktouch", desc = S("Shovel")},
+			sword  = {enchants = "sharp", desc = S("Sword")}
+		}
+	})
+end
+
+if minetest.get_modpath("nether") then
+	enchanting:register_tools("nether", {
+		materials = "nether",
+		material_desc = {nether = S("Nether")},
+		tools = {
+			axe    = {enchants = "durable, fast, silktouch", desc = S("Axe")},
+			pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe")},
+			shovel = {enchants = "durable, fast, silktouch", desc = S("Shovel")},
+			sword  = {enchants = "sharp", desc = S("Sword")}
+		}
+	})
+end
+
+for _,name in ipairs({"Amethyst", "Emerald", "Ruby", "Sapphire"}) do
+	gem = string.lower(name)
+	if minetest.get_modpath("gs_" .. gem) then
+		enchanting:register_tools("gs_" .. gem, {
+			materials = "gs_" .. gem,
+			material_desc = {["gs_" .. gem] = S(name)},
+			tools = {
+				axe    = {enchants = "durable, fast, silktouch", desc = S("Axe"), name = "gs_" .. gem .. ":" .. gem .. "_axe"},
+				pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe"), name = "gs_" .. gem .. ":" .. gem .. "_pickaxe"},
+				shovel = {enchants = "durable, fast, silktouch", desc = S("Shovel"), name = "gs_" .. gem .. ":" .. gem .. "_shovel"},
+				sword  = {enchants = "sharp", desc = S("Sword"), name = "gs_" .. gem .. ":" .. gem .. "_sword"}
+			}
+		})
+	end
+end
+
+if minetest.get_modpath("rainbow_ore") then
+	enchanting:register_tools("rainbow_ore", {
+		materials = "rainbow_ore",
+		material_desc = {rainbow_ore = S("Rainbow")},
+		tools = {
+			axe    = {enchants = "durable, fast, silktouch", desc = S("Axe"), name = "rainbow_ore:rainbow_ore_axe"},
+			pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe"), name = "rainbow_ore:rainbow_ore_pickaxe"},
+			shovel = {enchants = "durable, fast, silktouch", desc = S("Shovel"), name = "rainbow_ore:rainbow_ore_shovel"},
+			sword  = {enchants = "sharp", desc = S("Sword"), name = "rainbow_ore:rainbow_ore_sword"}
+		}
+	})
+end
+
+if minetest.get_modpath("lavastuff") then
+	enchanting:register_tools("lavastuff", {
+		materials = "lavastuff",
+		material_desc = {lavastuff = S("Lava")},
+		tools = {
+			axe    = {enchants = "durable, fast, silktouch", desc = S("Axe"), name = "lavastuff:axe"},
+			pick   = {enchants = "durable, fast", desc = S("Pickaxe"), name = "lavastuff:pick"},
+			shovel = {enchants = "durable, fast, silktouch", desc = S("Shovel"), name = "lavastuff:shovel"},
+			sword  = {enchants = "sharp", desc = S("Sword"), name = "lavastuff:sword"}
+		}
+	})
+end
+
+if minetest.get_modpath("tools_obsidian") then
+	enchanting:register_tools("tools_obsidian", {
+		materials = "tools_obsidian",
+		material_desc = {tools_obsidian = S("Obsidian")},
+		tools = {
+			axe    = {enchants = "durable, fast, silktouch", desc = S("Axe"), name = "tools_obsidian:axe_obsidian"},
+			pick   = {enchants = "durable, fast, silktouch", desc = S("Pickaxe"), name = "tools_obsidian:pick_obsidian"},
+			shovel = {enchants = "durable, fast, silktouch", desc = S("Shovel"), name = "tools_obsidian:shovel_obsidian"},
+			sword  = {enchants = "sharp", desc = S("Sword"), name = "tools_obsidian:sword_obsidian"},
+			longsword = {enchants = "sharp", desc = S("Longsword"), name = "tools_obsidian:longsword_obsidian"}
+		}
+	})
+end
 
 -- Recipes
 
@@ -336,3 +441,16 @@ minetest.register_craft({
 		{"default:obsidian", "default:obsidian", "default:obsidian"}
 	}
 })
+
+
+local mt_hnd = minetest.handle_node_drops
+
+function minetest.handle_node_drops(pos, drops, digger)
+	if digger then
+		if minetest.get_item_group(digger:get_wielded_item():get_name(), "silktouch") == 1 then
+			return mt_hnd(pos, {ItemStack(minetest.get_node(pos).name)}, digger)
+
+		end
+	end
+	return mt_hnd(pos, drops, digger)
+end
