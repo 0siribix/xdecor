@@ -120,6 +120,7 @@ function enchanting.fields(pos, _, fields, sender)
 	local tool = inv:get_stack("tool", 1)
 	local mese = inv:get_stack("mese", 1)
 	local orig_wear = tool:get_wear()
+	if (not tool) or (not tool:get_name()) then return end
 	local mod, name = allowed_tools[tool:get_name()].template:match("(.*):(.*)")
 	local enchanted_tool = (mod or "") .. ":enchanted_" .. (name or "") .. "_" .. next(fields)
 
