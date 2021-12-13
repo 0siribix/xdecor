@@ -120,22 +120,23 @@ function enchanting.fields(pos, _, fields, sender)
 	local tool = inv:get_stack("tool", 1)
 	local mese = inv:get_stack("mese", 1)
 	local orig_wear = tool:get_wear()
-	if (not tool) or (not tool:get_name()) then return end
-	local mod, name = allowed_tools[tool:get_name()].template:match("(.*):(.*)")
-	local enchanted_tool = (mod or "") .. ":enchanted_" .. (name or "") .. "_" .. next(fields)
+	if tool and tool:get_name() and allowed_tools[tool:get_name()] then
+		local mod, name = allowed_tools[tool:get_name()].template:match("(.*):(.*)")
+		local enchanted_tool = (mod or "") .. ":enchanted_" .. (name or "") .. "_" .. next(fields)
 
-	if mese:get_count() >= mese_cost and reg_tools[enchanted_tool] then
-		minetest.sound_play("xdecor_enchanting", {
-			to_player = sender:get_player_name(),
-			gain = 0.8
-		})
+		if mese:get_count() >= mese_cost and reg_tools[enchanted_tool] then
+			minetest.sound_play("xdecor_enchanting", {
+				to_player = sender:get_player_name(),
+				gain = 0.8
+			})
 
-		tool:replace(enchanted_tool)
-		tool:add_wear(orig_wear)
-		mese:take_item(mese_cost)
-		inv:set_stack("mese", 1, mese)
-		inv:set_stack("tool", 1, tool)
-		enchanting.formspec(pos)
+			tool:replace(enchanted_tool)
+			tool:add_wear(orig_wear)
+			mese:take_item(mese_cost)
+			inv:set_stack("mese", 1, mese)
+			inv:set_stack("tool", 1, tool)
+			enchanting.formspec(pos)
+		end
 	end
 end
 
